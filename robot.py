@@ -78,6 +78,7 @@ class Agibot(Robot):
         )
         self._gripper = None
         # if gripper_dof_names is not None:
+        #     self._end_effector_prim_path = "/World/Agibot/left_arm_link07/left_finger_base/left_finger_right"
         #     if deltas is None:
         #         deltas = np.array([0.05, 0.05]) / get_stage_units()
         #     self._gripper = ParallelGripper(

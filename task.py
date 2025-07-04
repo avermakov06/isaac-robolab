@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from isaacsim.core.api.objects import DynamicCuboid, VisualSphere
+from isaacsim.core.api.objects import DynamicCuboid, VisualSphere, FixedCuboid
 from isaacsim.core.api.scenes.scene import Scene
 from isaacsim.core.api.tasks import BaseTask
 from isaacsim.core.utils.prims import is_prim_path_valid
@@ -41,8 +41,9 @@ class AgibotTask(BaseTask):
         self._robot = self.set_robot()
         scene.add(self._robot)
         self._task_objects[self._robot.name] = self._robot
-        self.set_cube(scene)
+        # self.set_cube(scene)
         self.set_visual_sphere(scene)
+        self.set_table_and_cube(scene)
         self._move_task_objects_to_their_frame()
         
         # save eef prim
@@ -81,6 +82,7 @@ class AgibotTask(BaseTask):
             usd_path=agibot_asset_path,
             position=position,
             orientation=orientation,
+            gripper_dof_names=[""]
         )
         
         # set aux USD
@@ -105,22 +107,46 @@ class AgibotTask(BaseTask):
         )
         self._task_objects[self._sphere.name] = self._sphere
 
-    def set_cube(self, scene):
-        cube_name = "cube"
-        cube_prim_path = "/World/cube_to_pick"
+    # def set_cube(self, scene):
+    #     cube_name = "cube"
+    #     cube_prim_path = "/World/cube_to_pick"
+    #     self._cube = scene.add(
+    #         DynamicCuboid(
+    #             name=cube_name,
+    #             position=[0.47, -1.2, 1.21],
+    #             orientation=None,
+    #             prim_path=cube_prim_path,
+    #             scale=[0.025] * 3,
+    #             # size=1.0,
+    #             color=np.array([0, 0, 1]),
+    #         )
+    #     )
+    #     self._task_objects[self._cube.name] = self._cube
+
+    def set_table_and_cube(self, scene):
+        self._table = scene.add(
+            FixedCuboid(
+                prim_path="/World/table",
+                name="table",
+                position=[1.12, 0., 0.4],
+                scale=[0.8] * 3,
+            )
+        )
+        self._task_objects[self._table.name] = self._table
+        
         self._cube = scene.add(
             DynamicCuboid(
-                name=cube_name,
-                position=[0.47, -1.2, 1.21],
-                orientation=None,
-                prim_path=cube_prim_path,
-                scale=[0.025] * 3,
-                # size=1.0,
-                color=np.array([0, 0, 1]),
+                prim_path="/World/cube",
+                name="cube",
+                position=[0.8, 0.3, 0.825],
+                scale=[0.05] * 3,
+                color=np.array([1., 0., 0.]),
             )
         )
         self._task_objects[self._cube.name] = self._cube
-
+        
+        self._target_pos = [0.8, -0.15, 0.825]
+    
     def get_params(self) -> dict:
         params_representation = dict()
         params_representation["robot_name"] = {"value": self._robot.name, "modifiable": False}
