@@ -162,10 +162,10 @@ class MCPickPlaceController(BaseController):
         Returns:
             ArticulationAction: action to be executed by the ArticulationController
         """
-        print("--------")
+        # print("--------")
         # fix event
         # self._event = 0
-        print("running forward, event =", self._event)
+        # print("running forward, event =", self._event)
         if end_effector_offset is None:
             end_effector_offset = np.array([0, 0, 0])
         if self._pause or self.is_done():
