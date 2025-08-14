@@ -150,8 +150,8 @@ class AgibotGymEnv(gym.Env):
     def compute_reward(self, obs):
         cube_dist = np.linalg.norm(obs["cube_position"] - obs["cube_target_position"]).mean()
         eef_dist = np.linalg.norm(obs["end_effector_position"] - obs["cube_position"]).mean()
-        r = 0.1 * cube_dist + 0.01 * eef_dist
-        return r
+        dist_comb = 0.1 * cube_dist + 0.01 * eef_dist
+        return -dist_comb
 
 
 MOVE_TO_TABLE = False
