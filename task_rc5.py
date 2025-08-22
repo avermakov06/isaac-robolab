@@ -39,7 +39,7 @@ class RC5Task(BaseTask):
         self._robot = self.set_robot()
         scene.add(self._robot)
         self._task_objects[self._robot.name] = self._robot
-        # self.set_cube(scene)
+        self.set_cube(scene)
         # self.set_visual_sphere(scene)
         # self.set_table_and_cube(scene)
         self._move_task_objects_to_their_frame()
@@ -59,7 +59,8 @@ class RC5Task(BaseTask):
             initial_name="rc5", is_unique_fn=lambda x: not self.scene.object_exists(x)
         )
         
-        ASSET_FILE_NAME = "rc5-rigged-drives-tuned.usd"
+        # ASSET_FILE_NAME = "rc5-rigged-drives-tuned.usd"
+        ASSET_FILE_NAME = "urdf_rc5/Robot/Robot.usd"
         assets_path = Path(__file__).parent / "assets"
         robot_asset_path = (assets_path / ASSET_FILE_NAME).as_posix()
         # table_scene_asset_path = (assets_path / "table_scene.usd").as_posix()
@@ -102,21 +103,21 @@ class RC5Task(BaseTask):
         )
         self._task_objects[self._sphere.name] = self._sphere
 
-    # def set_cube(self, scene):
-    #     cube_name = "cube"
-    #     cube_prim_path = "/World/cube_to_pick"
-    #     self._cube = scene.add(
-    #         DynamicCuboid(
-    #             name=cube_name,
-    #             position=[0.47, -1.2, 1.21],
-    #             orientation=None,
-    #             prim_path=cube_prim_path,
-    #             scale=[0.025] * 3,
-    #             # size=1.0,
-    #             color=np.array([0, 0, 1]),
-    #         )
-    #     )
-    #     self._task_objects[self._cube.name] = self._cube
+    def set_cube(self, scene):
+        cube_name = "cube"
+        cube_prim_path = "/World/cube_to_pick"
+        self._cube = scene.add(
+            DynamicCuboid(
+                name=cube_name,
+                position=[0., 0.5 + 0.25 / 2, 0.],
+                orientation=None,
+                prim_path=cube_prim_path,
+                scale=[0.1] * 3,
+                # size=1.0,
+                color=np.array([0, 0, 1]),
+            )
+        )
+        self._task_objects[self._cube.name] = self._cube
 
     def set_table_and_cube(self, scene):
         self._table = scene.add(
