@@ -82,6 +82,8 @@ class RC5Task(BaseTask):
         
         # set aux USD
         # add_reference_to_stage(usd_path=table_scene_asset_path, prim_path="/World/table_scene")
+        # pallet_path = (assets_path / "cad/pallet_v1.usd").as_posix()
+        # add_reference_to_stage(usd_path=pallet_path, prim_path="/World/pallet")
 
         return robot
 

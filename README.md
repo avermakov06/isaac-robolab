@@ -8,3 +8,4 @@
 
 - to run the scene with Agibot, run `/isaac-sim/python.sh test_agibot.py`
 - to run the scene with liquid, run `/isaac-sim/python.sh test_spill_liquid.py`
+- to run the scene with RC5, run `/isaac-sim/python.sh test_rc5_gripper.py`

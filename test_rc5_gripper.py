@@ -5,11 +5,12 @@ simulation_app = SimulationApp({
 })
 
 import numpy as np
+
 from isaacsim.core.api import World
 from isaacsim.core.utils.types import ArticulationAction
+from isaacsim.core.utils.rotations import euler_angles_to_quat
+
 from task_rc5 import RC5Task
-# from isaacsim.robot.manipulators.examples.franka.controllers.pick_place_controller import PickPlaceController
-from controller import PickPlaceController
 from gripper import GripperDemo
 
 
@@ -23,17 +24,7 @@ def main():
     task_params = task.get_params()
     robot = world.scene.get_object(task_params["robot_name"]["value"])
     articulation_controller = robot.get_articulation_controller()
-    # my_controller = PickPlaceController(
-    #     name="pick_place_controller", gripper=gripper, robot_articulation=robot,
-    #     # end_effector_initial_height=1.172,  # otherwise hardcoded 0.3 is used
-    #     end_effector_initial_height=0.825 + 0.2
-    # )
-    from isaacsim.core.utils.rotations import euler_angles_to_quat
-
-    # from isaacsim.core.utils.rotations import euler_angles_to_quat
-    # quat = euler_angles_to_quat([0.0, 0.0, -90], degrees=True)
-    # robot.set_world_pose(orientation=quat)
-
+    
     # get prim's pos
     import omni
     from pxr import Usd
@@ -46,7 +37,7 @@ def main():
     print(pos)
     
     gripper_demo = GripperDemo(pos)
-    # gripper_demo.surface_gripper.close()
+    gripper_demo.surface_gripper.open()
 
     i = 0
     reset_needed = False
@@ -67,7 +58,6 @@ def main():
         if world.is_playing():
             if reset_needed:
                 world.reset()
-                # my_controller.reset()
                 reset_needed = False
             observations = world.get_observations()
 
@@ -76,23 +66,13 @@ def main():
             
             curr_ref += step * 3.1415 / 180
             
-            # actions = ArticulationAction(
-            #     joint_positions=curr_ref
-            # )
-            
             # IK
             robot_base_translation, robot_base_orientation = robot.get_world_pose()
             ik.set_robot_base_pose(robot_base_translation, robot_base_orientation)
             
-            # if i > 500:
-            #     gripper_demo.surface_gripper.close()
-            #     print("CLOSED")
-            # gripper_demo.surface_gripper.close()
+            actions = None
             
             if PICK_PHASE == 0:
-                print(f"Entering phase {PICK_PHASE}...")
-                # target_position, target_orientation = task._cube.get_world_pose()
-                # target_position, target_orientation = gripper_demo.boxGeom.get_world_pose()
                 # get prim's pos
                 import omni
                 from pxr import Usd
@@ -103,20 +83,24 @@ def main():
                 pos = np.array([pos_gf[0], pos_gf[1], pos_gf[2]], dtype=float)
                 target_position = pos
                 
-                # rot = np.array([0.7071, 0.7071, 0, 0])
-                rot = np.array([0, -1, 0, 0])
-                target_position[-1] = 0.35
-                action, success = aik.compute_inverse_kinematics(target_position, rot)
+                rot = np.array([0., -0.707, 0., -0.707])
                 
-                # print(success)
-                # print(action)
-                actions = action
+                if i < 50:
+                    # teleport
+                    tjp = [ 0.4212939, -1.5068517, -1.3259246,  2.8326983, -1.1495025,  1.5707899]
+                    task._robot.set_joint_positions(np.array(tjp))
+                else:
+                    # target for mesh
+                    rot = np.array([0., -0.707, 0., -0.707])
+                    target_position[-1] = 0.55
+                    action, success = aik.compute_inverse_kinematics(target_position, rot)
+                    actions = action
+
                 if i >= 250:
                     PICK_PHASE += 1
             elif PICK_PHASE == 1:
                 print(f"Entering phase {PICK_PHASE}...")
-                # gripper_demo.surface_gripper.close()
-                if target_position[-1] >= 0.3:
+                if target_position[-1] >= 0.52:
                     target_position[-1] -= 0.0005
                 action, success = aik.compute_inverse_kinematics(target_position, rot)
                 actions = action
@@ -124,13 +108,13 @@ def main():
                     PICK_PHASE += 1
             elif PICK_PHASE == 2:
                 print(f"Entering phase {PICK_PHASE}...")
-                # gripper_demo.surface_gripper.close()
                 if i >= 450:
                     PICK_PHASE += 1
             elif PICK_PHASE == 3:
                 print(f"Entering phase {PICK_PHASE}...")
+                print("CLOSING GRIPPER")
                 gripper_demo.surface_gripper.close()  # should close only here!
-                if target_position[-1] < 0.45:
+                if target_position[-1] < 0.55:
                     target_position[-1] += 0.0005
                 else:
                     PICK_PHASE += 1
@@ -142,49 +126,17 @@ def main():
                 if k > 100:
                     PICK_PHASE += 1
             else:
+                print("Opening gripper...")
                 gripper_demo.surface_gripper.open()
             
-            # actions from controller
-            curr_joint_positions = observations[task_params["robot_name"]["value"]]["joint_positions"]
-            # joint_indices = [4, 9, 11, 13, 15, 17, 19, 21, 23]  # with lift joint
-            # joint_indices = [8, 10, 12, 14, 16, 18, 20, 22]
-            # curr_joint_positions = np.array([curr_joint_positions[i] for i in joint_indices])
-            
-            end_effector_orientation = euler_angles_to_quat(np.array([0, np.pi, 0]))
-            # end_effector_orientation = None
-            
-            # actions = my_controller.forward(
-            #     picking_position=observations[task_params["cube_name"]["value"]]["position"],
-            #     placing_position=observations[task_params["cube_name"]["value"]]["position"],
-            #     current_joint_positions=curr_joint_positions,
-            #     end_effector_offset=np.array([0., 0.025, 0.]),
-            #     end_effector_orientation=end_effector_orientation,
-            #     joint_indices=[8, 10, 12, 14, 16, 18, 20, 22],
-            # )
-            
-            # print("current eef pos:", observations[task_params["robot_name"]["value"]]["end_effector_position"])
-            
-            # if my_controller.is_done():
-            #     print("done picking and placing")
-            # else:
-                # articulation_controller.apply_action(actions)
-            
-            
-            articulation_controller.apply_action(actions)
+            if actions is not None:
+                articulation_controller.apply_action(actions)
             
             i += 1
     simulation_app.close()
 
 
-from isaacsim.core.utils.extensions import get_extension_path_from_name
-from isaacsim.core.utils.stage import add_reference_to_stage
-from isaacsim.core.prims import Articulation
-from isaacsim.core.utils.nucleus import get_assets_root_path
-from isaacsim.core.prims import XFormPrim
-from isaacsim.core.utils.numpy.rotations import euler_angles_to_quats
-
 from isaacsim.robot_motion.motion_generation import ArticulationKinematicsSolver, LulaKinematicsSolver
-from isaacsim.robot_motion.motion_generation import interface_config_loader
 
 
 def create_IK_solver(robot):
