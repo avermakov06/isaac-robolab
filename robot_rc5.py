@@ -11,7 +11,7 @@ from isaacsim.robot.manipulators.grippers.parallel_gripper import \
 from isaacsim.storage.native import get_assets_root_path
 
 
-class Agibot(Robot):
+class RC5(Robot):
     """[summary]
 
     Args:

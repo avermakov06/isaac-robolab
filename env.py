@@ -12,6 +12,148 @@ from isaacsim.core.utils.string import find_unique_string_name
 from robot import Agibot
 
 
+# from isaaclab.envs import DirectRLEnvCfg, DirectRLEnv
+# from isaaclab.scene import InteractiveSceneCfg
+# from isaaclab.utils import configclass
+
+# @configclass
+# class AgibotEnvCfg(DirectRLEnvCfg):
+#    ...
+#    action_space = 1
+#    observation_space = 4
+#    state_space = 0
+   
+#    decimation = 1
+#    episode_length_s = 100
+#    scene = InteractiveSceneCfg(
+#         num_envs=1,
+#         env_spacing=None,
+#    )
+
+
+# class AgibotEnv(DirectRLEnv):
+#     cfg: AgibotEnvCfg
+
+#     def __init__(self, cfg: AgibotEnvCfg, render_mode: str | None = None, **kwargs):
+#         super().__init__(cfg, render_mode, **kwargs)
+
+#     def _setup_scene(self):
+#         self.task = AgibotTask()
+
+#     def _get_rewards(self):
+#         total_reward = 0.0
+#         return total_reward
+
+#     def _get_observations(self) -> dict:
+#         return self.task.get_observations()
+
+#     def _get_dones(self):
+#         a = False
+#         b = False
+#         return a, b
+
+#     def _reset_idx(self, env_ids):
+#         return
+    
+#     def _pre_physics_step(self, actions) -> None:
+#         self.actions = actions
+
+
+import gymnasium as gym
+from gymnasium import spaces
+
+
+class AgibotGymEnv(gym.Env):
+    def __init__(self):
+        super().__init__()
+        self.observation_space = spaces.Dict({
+            "cube_position": spaces.Box(-np.inf, np.inf, (3,), np.float32),
+            "cube_orientation": spaces.Box(-np.inf, np.inf, (4,), np.float32),
+            "cube_target_position": spaces.Box(-np.inf, np.inf, (3,), np.float32),
+            "joint_positions": spaces.Box(-np.inf, np.inf, (24,), np.float32),
+            "end_effector_position": spaces.Box(-np.inf, np.inf, (3,), np.float32),
+        })
+        self.action_space = spaces.Box(-100., 100., (3,), np.float32)
+        
+        self.task = AgibotTask()
+        
+        from isaacsim.core.api import World
+        world = World(stage_units_in_meters=1.0)
+        world.add_task(self.task)
+        self.world = world
+        world.reset()  # required to init controller
+        
+        self._init_controller()
+    
+    def _init_controller(self):
+        class DummyGripper:
+            def forward(self, *args, **kwargs):
+                print(f"Gripper's forward got called with args: {args}, {kwargs}")
+
+        gripper = DummyGripper()  # was robot.gripper
+
+        task_params =self.task.get_params()
+        robot = self.world.scene.get_object(task_params["robot_name"]["value"])
+        self.task_params = task_params
+        self.articulation_controller = robot.get_articulation_controller()
+        
+        from controller import PickPlaceController
+        
+        self.custom_controller = PickPlaceController(
+            name="pick_place_controller", gripper=gripper, robot_articulation=robot,
+            # end_effector_initial_height=1.172,  # otherwise hardcoded 0.3 is used
+            end_effector_initial_height=0.825 + 0.2
+        )
+    
+    def _apply_action(self, eef_action, eef_orientation, curr_joint_pos):
+        # fix event for just IK
+        self.custom_controller._event = 0
+        actions = self.custom_controller.forward(
+            picking_position=eef_action,
+            placing_position=eef_action,
+            current_joint_positions=curr_joint_pos,
+            end_effector_offset=np.array([0., 0.025, 0.]),
+            end_effector_orientation=eef_orientation,
+            joint_indices=[8, 10, 12, 14, 16, 18, 20, 22],
+        )
+        if self.custom_controller.is_done():
+            print("done picking and placing")
+        else:
+            self.articulation_controller.apply_action(actions)
+    
+    def reset(self, **kwargs):
+        self.world.reset()
+        self.custom_controller.reset()
+        return self.world.get_observations(), {}
+
+    def step(self, action):
+        from isaacsim.core.utils.rotations import euler_angles_to_quat
+        
+        obs_prev = self.world.get_observations()
+        curr_joint_positions = obs_prev["joint_positions"]
+        joint_indices = [8, 10, 12, 14, 16, 18, 20, 22]
+        curr_joint_positions = np.array([curr_joint_positions[i] for i in joint_indices])
+        
+        end_effector_orientation = euler_angles_to_quat(np.array([0, np.pi, 0]))
+            
+        self._apply_action(action, end_effector_orientation, curr_joint_positions)
+        
+        self.world.step(render=True)
+        
+        obs = self.world.get_observations()
+        r = self.compute_reward(obs)
+        truncated = False
+        terminated = False
+        
+        return obs, r, truncated, terminated, {}
+    
+    def compute_reward(self, obs):
+        cube_dist = np.linalg.norm(obs["cube_position"] - obs["cube_target_position"]).mean()
+        eef_dist = np.linalg.norm(obs["end_effector_position"] - obs["cube_position"]).mean()
+        dist_comb = 0.1 * cube_dist + 0.01 * eef_dist
+        return -dist_comb
+
+
 MOVE_TO_TABLE = False
 
 
@@ -188,24 +330,34 @@ class AgibotTask(BaseTask):
         
         eef_pos = self.get_eef_pos()
         
+        # obs = {
+        #     self._cube.name: {
+        #         "position": cube_position,
+        #         "orientation": cube_orientation,
+        #         # "target_position": self._target_position,
+        #     },
+        #     self._robot.name: {
+        #         "joint_positions": joints_state.positions,
+        #         # "end_effector_position": end_effector_position,
+        #         "end_effector_position": eef_pos,
+        #     },
+        # }
+        # if hasattr(self, "_sphere"):
+        #     p, q = self._sphere.get_local_pose()
+        #     obs[self._sphere.name] = {
+        #         "position": p,
+        #         "orientation": q,
+        #     }
+        
+        # sb3 does not support nested spaces
         obs = {
-            self._cube.name: {
-                "position": cube_position,
-                "orientation": cube_orientation,
-                # "target_position": self._target_position,
-            },
-            self._robot.name: {
-                "joint_positions": joints_state.positions,
-                # "end_effector_position": end_effector_position,
-                "end_effector_position": eef_pos,
-            },
+            "cube_position": cube_position,
+            "cube_orientation": cube_orientation,
+            "cube_target_position": self._target_pos,
+            "joint_positions": joints_state.positions,
+            # "end_effector_position": end_effector_position,
+            "end_effector_position": eef_pos,
         }
-        if hasattr(self, "_sphere"):
-            p, q = self._sphere.get_local_pose()
-            obs[self._sphere.name] = {
-                "position": p,
-                "orientation": q,
-            }
         return obs
 
     def pre_step(self, time_step_index: int, simulation_time: float) -> None:
