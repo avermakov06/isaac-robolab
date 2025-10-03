@@ -10,6 +10,9 @@ from isaacsim.core.utils.prims import is_prim_path_valid
 from isaacsim.core.utils.stage import add_reference_to_stage, get_stage_units
 from isaacsim.core.utils.string import find_unique_string_name
 from robot_rc5 import RC5
+from pxr import Usd, UsdGeom, UsdPhysics, Gf, Sdf
+ from pxr import UsdGeom
+import omni.usd
 
 
 
@@ -39,7 +42,7 @@ class RC5Task(BaseTask):
         self._robot = self.set_robot()
         scene.add(self._robot)
         self._task_objects[self._robot.name] = self._robot
-        self.set_cube(scene)
+        # self.set_cube(scene)
         # self.set_visual_sphere(scene)
         # self.set_table_and_cube(scene)
         self._move_task_objects_to_their_frame()
@@ -81,9 +84,23 @@ class RC5Task(BaseTask):
         )
         
         # set aux USD
-        # add_reference_to_stage(usd_path=table_scene_asset_path, prim_path="/World/table_scene")
-        # pallet_path = (assets_path / "cad/pallet_v1.usd").as_posix()
-        # add_reference_to_stage(usd_path=pallet_path, prim_path="/World/pallet")
+        stage = omni.usd.get_context().get_stage()
+        
+        pallet_prim_path = "/World/pallet"
+        xform = UsdGeom.Xform.Define(stage, pallet_prim_path)
+        xform.AddTranslateOp().Set(value=(0.25, 0.5, 0))
+        orientation = Gf.Quatf(0.7071, 0.7071, 0.0, 0.0)
+        xform.AddOrientOp().Set(orientation)
+        pallet_path = (assets_path / "cad/pallet_v1.usd").as_posix()
+        add_reference_to_stage(usd_path=pallet_path, prim_path=pallet_prim_path)
+        
+        press_prim_path = "/World/press"
+        xform = UsdGeom.Xform.Define(stage, press_prim_path)
+        xform.AddTranslateOp().Set(value=(-0.25, 0.5, 0))
+        orientation = Gf.Quatf(0.7071, 0.7071, 0.0, 0.0)
+        xform.AddOrientOp().Set(orientation)
+        press_path = (assets_path / "cad/press_v1.usd").as_posix()
+        add_reference_to_stage(usd_path=press_path, prim_path=press_prim_path)
 
         return robot
 
