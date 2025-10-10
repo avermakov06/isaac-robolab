@@ -11,7 +11,7 @@ from isaacsim.core.utils.stage import add_reference_to_stage, get_stage_units
 from isaacsim.core.utils.string import find_unique_string_name
 from robot_rc5 import RC5
 from pxr import Usd, UsdGeom, UsdPhysics, Gf, Sdf
- from pxr import UsdGeom
+from pxr import UsdGeom
 import omni.usd
 
 
