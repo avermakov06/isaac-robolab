@@ -21,16 +21,18 @@ def main():
     task = RC5Task()
     world.add_task(task)
     world.reset()
+
     task_params = task.get_params()
     robot = world.scene.get_object(task_params["robot_name"]["value"])
     articulation_controller = robot.get_articulation_controller()
     
-    # get prim's pos
+    # get primary's pos
     import omni
     from pxr import Usd
     stage = omni.usd.get_context().get_stage()
     g_path = "/World/RC5/frame6/body6"
     prim = stage.GetPrimAtPath(g_path)
+
     m = omni.usd.get_world_transform_matrix(prim, time_code=Usd.TimeCode.Default())
     pos_gf = m.ExtractTranslation()
     pos = np.array([pos_gf[0], pos_gf[1], pos_gf[2]], dtype=float)
@@ -152,3 +154,4 @@ def create_IK_solver(robot):
 
 if __name__ == "__main__":
     main()
+

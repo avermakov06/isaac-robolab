@@ -1,0 +1,30 @@
+2. Создание Dockerfile для кастомного образа
+Dockerfile:
+dockerfile
+FROM nvcr.io/nvidia/isaac-sim:5.0.0
+
+# Устанавливаем дополнительные пакеты
+RUN /isaac-sim/conda/bin/pip install opencv-python matplotlib
+
+# Создаем рабочую директорию
+WORKDIR /workspace
+
+# Копируем скрипты
+COPY scripts/ /workspace/scripts/
+
+# Устанавливаем права
+RUN chmod +x /workspace/scripts/*.py
+
+# Точка входа для запуска скриптов
+CMD ["/isaac-sim/conda/bin/python", "/workspace/scripts/main.py"]
+Сборка и запуск:
+bash
+# Соберите образ
+docker build -t my-isaac-sim .
+
+# Запустите контейнер
+docker run --name isaac-sim-custom -it --runtime=nvidia --gpus all -e "ACCEPT_EULA=Y" --rm --network=host \
+    -v ~/docker/isaac-sim/cache/kit:/isaac-sim/kit/cache:rw \
+    -v ~/docker/isaac-sim/cache/ov:/home/$USER/.cache/ov:rw \
+    -v ~/docker/isaac-sim/logs:/home/$USER/.nvidia-omniverse/logs:rw \
+    my-isaac-sim
