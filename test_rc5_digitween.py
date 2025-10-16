@@ -90,7 +90,7 @@ class DualRobotController:
         try:
             # Добавляем точки траектории
             for point in self.trajectory_points:
-                self.real_robot.motion.linear.add_new_waypoint(point)
+                self.real_robot.motion.linear.add_new_waypoint(point, speed=30)
             
             # Запускаем движение
             self.real_robot.motion.mode.set('move')

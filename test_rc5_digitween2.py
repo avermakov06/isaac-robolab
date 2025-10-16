@@ -77,7 +77,8 @@ class DualRobotController:
         self.trajectory_points = [
             p_home_m + rot,
             p1_m + rot,
-            p2_m + rot
+            p2_m + rot,
+            p_home_m + rot
         ]
         
         # Начальная точка для возврата
@@ -92,7 +93,6 @@ class DualRobotController:
             self.real_robot.controller_state.set('run', await_sec=120)
             self.real_robot_connected = True
             print("Реальный робот успешно подключен")
-            
             
         except Exception as e:
             print(f"Ошибка подключения к реальному роботу: {e}")
@@ -141,7 +141,6 @@ class DualRobotController:
             for i in range(len(self.trajectory_points)):
                 self.real_robot.motion.wait_waypoint_completion(i)
                 self.current_point_index = i
-                time.sleep(3)  # Небольшая пауза между точками
                 
         except Exception as e:
             print(f"Ошибка управления реальным роботом: {e}")
@@ -243,6 +242,7 @@ class DualRobotController:
             real_robot_thread.start()
             print("Поток управления реальным роботом запущен")
         
+        self.return_home_point
         # Основной цикл симуляции
         i = 0
         reset_needed = False

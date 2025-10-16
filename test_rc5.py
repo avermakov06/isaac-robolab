@@ -63,7 +63,7 @@ def main():
                 reset_needed = False
             observations = world.get_observations()
 
-            if i % 500 == 0:
+            if i % 50 == 0:
                 step *= -1
             
             curr_ref += step * 3.1415 / 180
@@ -71,10 +71,12 @@ def main():
             # IK
             robot_base_translation, robot_base_orientation = robot.get_world_pose()
             ik.set_robot_base_pose(robot_base_translation, robot_base_orientation)
+            
+            # Setup tagert position
             target_position, task_orientation = task._cube.get_world_pose()
             # rot = np.array([0.7071, 0.7071, 0, 0])
             rot = np.array([0, -1, 0, 0])
-            target_position[-2] = 0.3 
+            target_position[-1] = 0.3 
             action, success = aik.compute_inverse_kinematics(target_position, rot)
             
             print(success)
