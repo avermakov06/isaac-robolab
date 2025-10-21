@@ -42,7 +42,7 @@ class RC5Task(BaseTask):
         self._robot = self.set_robot()
         scene.add(self._robot)
         self._task_objects[self._robot.name] = self._robot
-        self.set_cube(scene)
+        # self.set_cube(scene)
         # self.set_visual_sphere(scene)
         # self.set_table_and_cube(scene)
         self._move_task_objects_to_their_frame()

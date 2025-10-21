@@ -11,14 +11,12 @@ from isaacsim.core.utils.rotations import euler_angles_to_quat
 
 from API.rc_api import RobotApi
 
-import threading
 import time
 from typing import List, Tuple
 
 class DualRobotController:
     def __init__(self, simulation_app):
         # Инициализация симуляции
-        
         self.simulation_app = simulation_app
         self.world = World(stage_units_in_meters=1.0)
         self.task = RC5Task()
@@ -43,15 +41,7 @@ class DualRobotController:
         self.current_point_index = 0
         self.is_running = True
         self.real_robot_finished = False
-        self.sim_target_position = None
-        self.sim_target_rotation = None
         
-    def to_meters(self, p):
-        return tuple(x * 0.001 for x in p)
-    
-    def to_mm(self, p):
-        return tuple(x * 1000 for x in p)
-    
     def create_IK_solver(self, robot):
         kinematics_solver = LulaKinematicsSolver(
             robot_description_path="controller_configs/rc5_official_urdf.yaml",
@@ -62,31 +52,26 @@ class DualRobotController:
         return kinematics_solver, articulation_kinematics_solver
     
     def setup_trajectory(self):
-        # точки в мм
-        p1 = (-374, 485, 68)
-        p2 = (-46, 565, 68)
-        p_home = (122., 316., 385.)
+        # точки в метрах (оригинальные значения)
+        p1 = (0.374, 0.485, 0.068)   
+        p2 = (0.046, 0.665, 0.168) 
+        p_home = (0.122, 0.316, 0.385)
         rot = (-180., 0., -45.)
         
-        # Конвертация в метры и настройка
-        p1_m = self.to_meters(p1)
-        p2_m = self.to_meters(p2)
-        p_home_m = self.to_meters(p_home)
-        
-        # Сохранение точек траектории
+        # Сохранение точек траектории в формате (position, rotation)
         self.trajectory_points = [
-            p_home_m + rot,
-            p1_m + rot,
-            p2_m + rot,
-            p_home_m + rot
+            (np.array(p_home), np.array(rot)),  # Точка 0 - дом
+            (np.array(p1), np.array(rot)),      # Точка 1
+            (np.array(p2), np.array(rot)),      # Точка 2
+            (np.array(p_home), np.array(rot))   # Точка 3 - возврат домой
         ]
         
         # Начальная точка для возврата
-        self.return_home_point = p_home_m + rot
+        self.return_home_point = (np.array(p_home), np.array(rot))
         
         print("Траектория настроена:")
-        for i, point in enumerate(self.trajectory_points):
-            print(f"Точка {i}: позиция {point[:3]} м, вращение {point[3:]} градусов")
+        for i, (position, rotation) in enumerate(self.trajectory_points):
+            print(f"Точка {i}: позиция {position} м, вращение {rotation} градусов")
     
     def connect_real_robot(self):
         try:
@@ -98,78 +83,149 @@ class DualRobotController:
             print(f"Ошибка подключения к реальному роботу: {e}")
             self.real_robot_connected = False
     
-    def format_point_for_real_robot(self, point):
+    def format_point_for_real_robot(self, point_index):
         """Форматирование точки для реального робота"""
-        # point содержит: (x, y, z, rx, ry, rz) в метрах и градусах
-        # Преобразуем позицию в мм, вращение оставляем в градусах
-        x_mm, y_mm, z_mm = self.to_mm(point[:3])
-        rx, ry, rz = point[3:]
+        if point_index >= len(self.trajectory_points):
+            return None
+            
+        position, rotation = self.trajectory_points[point_index]
         
-        # Формируем точку в правильном формате для API
-        # Возможно нужно: [x, y, z, rx, ry, rz] или другой формат
-        formatted_point = [x_mm, y_mm, z_mm, rx, ry, rz]
-        print(f"Форматированная точка: {formatted_point}")
+        # Оставляем точки в метрах
+        x, y, z = position
+        rx, ry, rz = rotation
+        
+        formatted_point = [x, y, z, rx, ry, rz]
+        print(f"Форматированная точка {point_index}: {formatted_point}")
         return formatted_point
     
-    def check_robot_reachability(self, point):
-        """Проверка достижимости точки"""
+    def check_sim_robot_reached_target(self, target_position: np.ndarray, tolerance=0.01):
+        """Проверка, достиг ли симуляционный робот целевой позиции"""
         try:
+            # Получаем текущую позицию концевика
+            current_pose = self.aik.compute_end_effector_pose()
+            if current_pose is None:
+                return False
+                
+            current_position = current_pose[0]
             
-            # Пробуем вычислить IK для точки
-            result = self.real_robot.motion.check_reachability(point)
-            print(f"Точка достижима: {result}")
-            return result
+            # Вычисляем расстояние до цели
+            distance = np.linalg.norm(current_position - target_position)
+            
+            # Проверяем, находится ли в пределах допуска
+            reached = distance <= tolerance
+            
+            # print(f"Расстояние до цели: {distance:.4f} м (допуск: {tolerance} м) - {'ДОСТИГНУТО' if reached else 'В ПРОЦЕССЕ'}")
+                
+            return reached
             
         except Exception as e:
-            print(f"Ошибка проверки достижимости: {e}")
+            print(f"Ошибка проверки позиции: {e}")
             return False
     
-    def control_real_robot(self):
-        """Управление реальным роботом в отдельном потоке"""
+    def move_real_robot_to_point(self, point_index):
+        """Движение реального робота к одной точке"""
         if not self.real_robot_connected:
-            return
+            print(f"Реальный робот не подключен - симулируем движение к точке {point_index}")
+            time.sleep(3)
+            return True
             
         try:
-            # Добавляем точки траектории
-            for point in self.trajectory_points:
-                self.real_robot.motion.linear.add_new_waypoint(point)
+            formatted_point = self.format_point_for_real_robot(point_index)
+            if not formatted_point:
+                return False
             
-            # Запускаем движение
+            print(f"Реальный робот движется к точке {point_index}")
+            
+            # Очищаем предыдущие точки
+            try:
+                if hasattr(self.real_robot.motion.linear, 'clear_waypoints'):
+                    self.real_robot.motion.linear.clear_waypoints()
+            except:
+                pass
+            
+            # Добавляем точку
+            self.real_robot.motion.linear.add_new_waypoint(formatted_point)
             self.real_robot.motion.mode.set('move')
             
-            # Ожидаем завершения каждой точки
-            for i in range(len(self.trajectory_points)):
-                self.real_robot.motion.wait_waypoint_completion(i)
-                self.current_point_index = i
+            print(f"Ожидание завершения движения к точке {point_index}...")
+            
+            # Простое ожидание завершения
+            time.sleep(5)  # Ждем 5 секунд для завершения движения
+            
+            print(f"Реальный робот достиг точки {point_index}")
+            return True
+            
+        except Exception as e:
+            print(f"Ошибка при движении реального робота: {e}")
+            return False
+    
+    def move_sim_robot_to_point(self, point_index, max_steps=150):
+        """Движение симуляционного робота к одной точке"""
+        try:
+            target_position, rotation = self.trajectory_points[point_index]
+            print(f"Симуляционный робот движется к точке {point_index}: {target_position}")
+            
+            steps_without_progress = 0
+            last_distance = float('inf')
+            min_distance = float('inf')
+            
+            for step in range(max_steps):
+                # Применяем IK для целевой позиции
+                success = self.control_sim_robot(target_position, rotation)
                 
+                if not success:
+                    # Пробуем альтернативный подход
+                    current_pose = self.aik.compute_end_effector_pose()
+                    if current_pose is not None:
+                        current_pos = current_pose[0]
+                        # Пробуем промежуточную позицию
+                        intermediate_pos = current_pos + (target_position - current_pos) * 0.5
+                        success = self.control_sim_robot(intermediate_pos, rotation)
+                
+                # Шаг симуляции
+                self.world.step(render=True)
+                
+                # Проверяем достижение цели
+                if self.check_sim_robot_reached_target(target_position, 0.01):
+                    print(f"Симуляционный робот достиг точки {point_index} за {step} шагов")
+                    return True
+                
+                # Проверка прогресса
+                current_pose = self.aik.compute_end_effector_pose()
+                if current_pose is not None:
+                    current_position = current_pose[0]
+                    current_distance = np.linalg.norm(current_position - target_position)
+                    
+                    # Обновляем минимальное расстояние
+                    min_distance = min(min_distance, current_distance)
+                    
+                    # Проверяем прогресс
+                    if abs(current_distance - last_distance) < 0.001:
+                        steps_without_progress += 1
+                    else:
+                        steps_without_progress = 0
+                    
+                    last_distance = current_distance
+                    
+                    # Вывод прогресса
+                    if step % 30 == 0:
+                        print(f"Шаг {step}: расстояние {current_distance:.4f} м")
+                
+                # Проверка застревания
+                if steps_without_progress > 40:
+                    print(f"Робот застрял на расстоянии {min_distance:.4f} м")
+                    return min_distance <= 0.03  # Ослабленный критерий
+                
+                time.sleep(0.02)
+            
+            print(f"Достигнут лимит шагов. Минимальное расстояние: {min_distance:.4f} м")
+            return min_distance <= 0.02
+            
         except Exception as e:
-            print(f"Ошибка управления реальным роботом: {e}")
+            print(f"Ошибка движения симуляционного робота: {e}")
+            return False
     
-    def return_real_robot_to_home(self):
-        """Возврат реального робота в начальную позицию"""
-        if not self.real_robot_connected:
-            return
-            
-        try:
-            print("Возврат реального робота в начальную позицию...")
-                       
-            # Добавляем точку возврата домой
-            home_point_formatted = self.format_point_for_real_robot(self.return_home_point)
-            print(f"Точка возврата: {home_point_formatted}")
-            
-            self.real_robot.motion.linear.add_new_waypoint(home_point_formatted)
-            
-            # Запускаем движение
-            self.real_robot.motion.mode.set('move')
-            
-            # Ожидаем завершения
-            self.real_robot.motion.wait_waypoint_completion(0)
-            print("Реальный робот вернулся в начальную позицию")
-            
-        except Exception as e:
-            print(f"Ошибка при возврате реального робота: {e}")
-    
-    def control_sim_robot(self, target_position: Tuple[float, float, float], rotation: Tuple[float, float, float]):
+    def control_sim_robot(self, target_position: np.ndarray, rotation: np.ndarray):
         """Управление роботом в симуляции через IK"""
         try:
             # Получаем текущую позу робота
@@ -177,7 +233,7 @@ class DualRobotController:
             self.ik.set_robot_base_pose(robot_base_translation, robot_base_orientation)
             
             # Конвертируем вращение в кватернион
-            rot_quat = euler_angles_to_quat(np.array(rotation), degrees=True)
+            rot_quat = euler_angles_to_quat(rotation, degrees=True)
             
             # Вычисляем IK
             action, success = self.aik.compute_inverse_kinematics(target_position, rot_quat)
@@ -186,157 +242,112 @@ class DualRobotController:
                 self.articulation_controller.apply_action(action)
                 return True
             else:
-                print("IK решение не найдено")
                 return False
                 
         except Exception as e:
-            print(f"Ошибка управления симуляционным роботом: {e}")
+            print(f"Ошибка IK: {e}")
             return False
     
-    def return_sim_robot_to_home(self):
-        """Возврат симуляционного робота в начальную позицию"""
-        try:
-            print("Возврат симуляционного робота в начальную позицию...")
-            
-            if self.return_home_point is not None:
-                target_position = np.array(self.return_home_point[:3])
-                rotation = self.return_home_point[3:]
-                
-                # Плавно перемещаем робота домой
-                for step in range(100):
-                    success = self.control_sim_robot(target_position, rotation)
-                    if success:
-                        self.world.step(render=True)
-                        time.sleep(0.01)
-                    if step % 20 == 0:
-                        print(f"Шаг возврата {step}/100")
-                
-                print("Симуляционный робот вернулся в начальную позицию")
-                
-        except Exception as e:
-            print(f"Ошибка при возврате симуляционного робота: {e}")
-    
-    def get_sim_target_from_real(self, real_point_index: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Преобразование точки реального робота в целевую позицию для симуляции"""
-        if real_point_index < len(self.trajectory_points):
-            point = self.trajectory_points[real_point_index]
-            # Разделяем позицию и вращение
-            target_position = np.array(point[:3])
-            rotation = point[3:]
-            return target_position, rotation
-        return None, None
-    
-    def run_synchronized(self):
-        """Основной цикл синхронизированного управления"""
+    def run_sequential_movement(self):
+        """Основной цикл поочередного движения - ВСЕ В ОДНОМ ПОТОКЕ"""
         # Настройка траектории
         self.setup_trajectory()
         
         # Подключение к реальному роботу
         self.connect_real_robot()
         
-        # Запуск реального робота в отдельном потоке
-        real_robot_thread = None
-        if self.real_robot_connected:
-            real_robot_thread = threading.Thread(target=self.control_real_robot)
-            real_robot_thread.daemon = True
-            real_robot_thread.start()
-            print("Поток управления реальным роботом запущен")
+        print("Запуск поочередного управления...")
         
-        self.return_home_point
-        # Основной цикл симуляции
-        i = 0
-        reset_needed = False
-        
-        print("Запуск синхронизированного управления...")
-        
-        while self.simulation_app.is_running() and self.is_running:
-            self.world.step(render=True)
+        # Последовательное движение по точкам
+        for point_index in range(len(self.trajectory_points)):
+            if not self.is_running or not self.simulation_app.is_running():
+                break
+                
+            print(f"\n" + "="*50)
+            print(f"ОБРАБОТКА ТОЧКИ {point_index}")
+            print("="*50)
             
-            # Обработка состояний симуляции
-            if self.world.is_stopped() and not reset_needed:
-                reset_needed = True
-            if self.world.is_playing():
-                if reset_needed:
-                    self.world.reset()
-                    reset_needed = False
-                
-                # Получаем текущую целевую позицию из траектории реального робота
-                target_position, rotation = self.get_sim_target_from_real(self.current_point_index)
-                
-                if target_position is not None:
-                    # Сохраняем текущую цель для плавного движения
-                    self.sim_target_position = target_position
-                    self.sim_target_rotation = rotation
-                    
-                    # Управляем симуляционным роботом
-                    success = self.control_sim_robot(target_position, rotation)
-                    
-                    if not success:
-                        print(f"Не удалось достичь точки {self.current_point_index}")
-                
-                # Плавное движение к цели даже если реальный робот уже ушел дальше
-                elif self.sim_target_position is not None and not self.real_robot_finished:
-                    success = self.control_sim_robot(self.sim_target_position, self.sim_target_rotation)
-                
-                i += 1
-                
-                # Проверка завершения траектории
-                if (self.real_robot_connected and 
-                    self.real_robot_finished and 
-                    self.current_point_index >= len(self.trajectory_points) - 1):
-                    print("Траектория завершена, начинаем возврат в начальную позицию...")
-                    self.return_both_robots_to_home()
-                    self.is_running = False
+            # ШАГ 1: Реальный робот движется к точке
+            print("ШАГ 1: Движение реального робота...")
+            real_success = self.move_real_robot_to_point(point_index)
             
-            # Небольшая пауза для снижения нагрузки и лучшей синхронизации
-            time.sleep(0.01)  # Уменьшил паузу для более плавной симуляции
+            if real_success:
+                print("Реальный робот завершил движение")
+            else:
+                print("Проблемы с реальным роботом")
+            
+            # Пауза между роботами
+            time.sleep(1.0)
+            
+            # ШАГ 2: Симуляционный робот движется к точке
+            print("ШАГ 2: Движение симуляционного робота...")
+            sim_success = self.move_sim_robot_to_point(point_index)
+            
+            if sim_success:
+                print("Симуляционный робот завершил движение")
+            else:
+                print("Проблемы с симуляционным роботом")
+            
+            # Обновляем текущий индекс
+            self.current_point_index = point_index
+            
+            # Пауза перед следующей точкой
+            if point_index < len(self.trajectory_points) - 1:
+                print(f"Пауза перед следующей точкой...")
+                time.sleep(1.0)
+        
+        print("\nВСЕ ТОЧКИ ВЫПОЛНЕНЫ!")
+        
+        # Возврат в домашнюю позицию
+        self.return_to_home()
         
         # Завершение
         self.cleanup()
     
-    def return_both_robots_to_home(self):
-        """Возврат обоих роботов в начальную позицию"""
-        print("Возврат обоих роботов в начальную позицию...")
+    def return_to_home(self):
+        """Возврат обоих роботов в домашнюю позицию"""
+        print("\nВозврат в домашнюю позицию...")
         
-        # Возврат реального робота
+        # Реальный робот
         if self.real_robot_connected:
-            return_thread = threading.Thread(target=self.return_real_robot_to_home)
-            return_thread.daemon = True
-            return_thread.start()
+            try:
+                print("Возврат реального робота...")
+                self.move_real_robot_to_point(0)
+                print("Реальный робот вернулся домой")
+            except Exception as e:
+                print(f"Ошибка возврата реального робота: {e}")
         
-        # Возврат симуляционного робота
-        self.return_sim_robot_to_home()
+        # Симуляционный робот
+        try:
+            print("Возврат симуляционного робота...")
+            self.move_sim_robot_to_point(0)
+            print("Симуляционный робот вернулся домой")
+        except Exception as e:
+            print(f"Ошибка возврата симуляционного робота: {e}")
     
     def cleanup(self):
         """Очистка ресурсов"""
         print("Очистка ресурсов...")
         self.is_running = False
         
-        # Возврат в начальную позицию если еще не сделано
-        if not self.real_robot_finished or self.current_point_index < len(self.trajectory_points) - 1:
-            self.return_both_robots_to_home()
-        
         if self.real_robot_connected:
-            # Остановка реального робота
             try:
                 self.real_robot.controller_state.set('hold')
                 print("Реальный робот переведен в режим HOLD")
             except Exception as e:
                 print(f"Ошибка при остановке реального робота: {e}")
         
-        time.sleep(15.0)
-        # Закрытие симуляции
+        time.sleep(3.0)
         if hasattr(self, 'simulation_app'):
             self.simulation_app.close()
             print("Симуляция закрыта")
 
 
 def main():
-    # Создание и запуск двойного контроллера
     dual_controller = DualRobotController(simulation_app)
     
     try:
-        dual_controller.run_synchronized()
+        dual_controller.run_sequential_movement()
     except KeyboardInterrupt:
         print("Прервано пользователем")
         dual_controller.cleanup()
