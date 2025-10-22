@@ -85,9 +85,7 @@ class StateHandler:
                 if self._rtd_receiver.rt_data.state_flags:
                     self._logger.warning(
                         f'Robot motion warning: '
-                        f'{Mw(int(
-                            self._rtd_receiver.rt_data.state_flags
-                        )).name}'
+                        f'{Mw(int(self._rtd_receiver.rt_data.state_flags)).name}'
                     )
 
     def check_controller_state(self):
